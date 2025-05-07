@@ -1,0 +1,196 @@
+import networkx as nx
+import matplotlib.pyplot as plt
+import random
+
+# Criar grafo direcionado
+G = nx.DiGraph()
+
+# Definir as 14 cidades (nós)
+cidades = [
+    "Porto", "Lisboa", 
+    "Madrid", "Barcelona", "Sevilha", "Málaga", "Las Palmas",
+    "Casablanca", "Rabat", "Tânger", "Agadir", "Fez", "Marraquexe"
+]
+G.add_nodes_from(cidades)
+
+# Definir frota de veículos (global, por cidade)
+frota_base = {
+    "autocarro": {
+        "capacidade": 50,
+        "autonomia": 300,  # km
+        "velocidade": 80,  # km/h
+        "consumo_combustivel": 0.3,  # L/km
+        "quantidade": 20
+    },
+    "comboio": {
+        "capacidade": 500,
+        "autonomia": float('inf'),  # Infinita (elétrico)
+        "velocidade": 200,  # km/h
+        "consumo_combustivel": 0.5,  # L/km
+        "quantidade": 10
+    },
+    "aviao": {
+        "capacidade": 200,
+        "autonomia": 1000,  # km
+        "velocidade": 600,  # km/h
+        "consumo_combustivel": 1000,  # L/h
+        "quantidade": 5
+    },
+    "ferry": {
+        "capacidade": 300,
+        "autonomia": 500,  # km
+        "velocidade": 100,  # km/h
+        "consumo_combustivel": 200,  # L/h
+        "quantidade": 0  # Ajustado por cidade
+    },
+    "metro": {
+        "capacidade": 1000,
+        "autonomia": 50,  # km (curtas distâncias urbanas)
+        "velocidade": 40,  # km/h
+        "consumo_combustivel": 5,  # L/km
+        "quantidade": 0  # Ajustado por cidade
+    }
+}
+
+# Definir atributos para cada cidade
+for cidade in cidades:
+    # Demanda: número de pessoas a transportar
+    if cidade in ["Lisboa", "Madrid", "Barcelona", "Casablanca", "Marraquexe"]:  # Cidades principais
+        G.nodes[cidade]["demanda"] = 500000
+    elif cidade in ["Porto", "Sevilha", "Málaga"]:  # Cidades secundárias
+        G.nodes[cidade]["demanda"] = 200000
+    else:  # Cidades menores (Las Palmas, Rabat, Tânger, Agadir, Fez)
+        G.nodes[cidade]["demanda"] = 50000
+
+    # Proximidade aos estádios: distância média em km
+    if cidade in ["Lisboa", "Porto", "Madrid", "Barcelona"]:  # Cidades com estádios centrais
+        G.nodes[cidade]["proximidade_estadio"] = 5
+    else:  # Outras cidades, estádios mais distantes
+        G.nodes[cidade]["proximidade_estadio"] = 10
+
+    # Prioridade: P = 0.7 * demanda + 0.3 * (1/proximidade)
+    G.nodes[cidade]["prioridade"] = (
+        0.7 * G.nodes[cidade]["demanda"] + 
+        0.3 * (1 / G.nodes[cidade]["proximidade_estadio"])
+    )
+
+    # Janela de tempo: lista de intervalos com base em horários dos jogos
+    if cidade in ["Lisboa", "Madrid", "Barcelona", "Casablanca", "Marraquexe"]:  # Cidades principais, 2 jogos (16h, 20h)
+        G.nodes[cidade]["janela_tempo"] = [(12, 15), (16, 19)]  # 16h: 12h-15h, 20h: 16h-19h
+    else:  # Cidades secundárias/menores, 1 jogo (16h)
+        G.nodes[cidade]["janela_tempo"] = [(12, 15)]  # 16h: 12h-15h
+
+    # Associar frota à cidade
+    G.nodes[cidade]["frota"] = {
+        "autocarro": frota_base["autocarro"].copy(),
+        "comboio": frota_base["comboio"].copy(),
+        "aviao": frota_base["aviao"].copy(),
+        "ferry": frota_base["ferry"].copy(),
+        "metro": frota_base["metro"].copy()
+    }
+    G.nodes[cidade]["frota"]["ferry"]["quantidade"] = 2 if cidade in ["Málaga", "Tânger"] else 0
+    G.nodes[cidade]["frota"]["metro"]["quantidade"] = 5 if cidade in ["Lisboa", "Madrid", "Barcelona", "Casablanca"] else 0
+
+# Definir rotas viáveis (tabela completa, 50 rotas)
+rotas = [
+    ("Porto", "Lisboa", {"meio": "comboio", "distancia": 300, "tempo": 2.5, "capacidade": 500, "combustivel": 150, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Porto", "Lisboa", {"meio": "autocarro", "distancia": 300, "tempo": 3.5, "capacidade": 50, "combustivel": 90, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.1}),
+    ("Porto", "Madrid", {"meio": "aviao", "distancia": 550, "tempo": 2, "capacidade": 200, "combustivel": 1200, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Porto", "Barcelona", {"meio": "aviao", "distancia": 900, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Porto", "Sevilha", {"meio": "aviao", "distancia": 600, "tempo": 2, "capacidade": 200, "combustivel": 1200, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Porto", "Casablanca", {"meio": "aviao", "distancia": 850, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Lisboa", "Madrid", {"meio": "aviao", "distancia": 500, "tempo": 2, "capacidade": 200, "combustivel": 1000, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Lisboa", "Madrid", {"meio": "comboio", "distancia": 620, "tempo": 3.5, "capacidade": 500, "combustivel": 200, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Lisboa", "Barcelona", {"meio": "aviao", "distancia": 1000, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Lisboa", "Sevilha", {"meio": "aviao", "distancia": 450, "tempo": 2, "capacidade": 200, "combustivel": 1000, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Lisboa", "Málaga", {"meio": "aviao", "distancia": 500, "tempo": 2, "capacidade": 200, "combustivel": 1000, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Lisboa", "Casablanca", {"meio": "aviao", "distancia": 580, "tempo": 2, "capacidade": 200, "combustivel": 1000, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Lisboa", "Las Palmas", {"meio": "aviao", "distancia": 1300, "tempo": 3, "capacidade": 200, "combustivel": 1800, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Madrid", "Barcelona", {"meio": "comboio", "distancia": 620, "tempo": 2.5, "capacidade": 500, "combustivel": 200, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Madrid", "Barcelona", {"meio": "aviao", "distancia": 600, "tempo": 2, "capacidade": 200, "combustivel": 1200, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Madrid", "Sevilha", {"meio": "comboio", "distancia": 470, "tempo": 2.5, "capacidade": 500, "combustivel": 150, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Madrid", "Málaga", {"meio": "comboio", "distancia": 550, "tempo": 2.5, "capacidade": 500, "combustivel": 165, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Madrid", "Málaga", {"meio": "aviao", "distancia": 500, "tempo": 2, "capacidade": 200, "combustivel": 1000, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Madrid", "Casablanca", {"meio": "aviao", "distancia": 850, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Madrid", "Las Palmas", {"meio": "aviao", "distancia": 1750, "tempo": 3.5, "capacidade": 200, "combustivel": 2100, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Barcelona", "Sevilha", {"meio": "comboio", "distancia": 1000, "tempo": 5, "capacidade": 500, "combustivel": 300, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Barcelona", "Málaga", {"meio": "comboio", "distancia": 900, "tempo": 4.5, "capacidade": 500, "combustivel": 270, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Barcelona", "Málaga", {"meio": "aviao", "distancia": 800, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Barcelona", "Casablanca", {"meio": "aviao", "distancia": 1200, "tempo": 3, "capacidade": 200, "combustivel": 1800, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Sevilha", "Málaga", {"meio": "comboio", "distancia": 200, "tempo": 2, "capacidade": 500, "combustivel": 60, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Sevilha", "Málaga", {"meio": "autocarro", "distancia": 200, "tempo": 2.5, "capacidade": 50, "combustivel": 60, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.1}),
+    ("Sevilha", "Casablanca", {"meio": "aviao", "distancia": 700, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Málaga", "Tânger", {"meio": "ferry", "distancia": 160, "tempo": 2, "capacidade": 300, "combustivel": 200, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Málaga", "Casablanca", {"meio": "aviao", "distancia": 600, "tempo": 2, "capacidade": 200, "combustivel": 1200, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Las Palmas", "Casablanca", {"meio": "aviao", "distancia": 1000, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Las Palmas", "Madrid", {"meio": "aviao", "distancia": 1750, "tempo": 3.5, "capacidade": 200, "combustivel": 2100, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Casablanca", "Rabat", {"meio": "comboio", "distancia": 90, "tempo": 1, "capacidade": 500, "combustivel": 30, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Casablanca", "Rabat", {"meio": "autocarro", "distancia": 90, "tempo": 1.5, "capacidade": 50, "combustivel": 27, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.1}),
+    ("Casablanca", "Tânger", {"meio": "comboio", "distancia": 340, "tempo": 2.5, "capacidade": 500, "combustivel": 100, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Casablanca", "Marraquexe", {"meio": "comboio", "distancia": 240, "tempo": 2.5, "capacidade": 500, "combustivel": 80, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Casablanca", "Fez", {"meio": "comboio", "distancia": 300, "tempo": 3, "capacidade": 500, "combustivel": 100, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Rabat", "Tânger", {"meio": "comboio", "distancia": 250, "tempo": 2, "capacidade": 500, "combustivel": 80, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Rabat", "Tânger", {"meio": "autocarro", "distancia": 250, "tempo": 3, "capacidade": 50, "combustivel": 75, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.1}),
+    ("Rabat", "Lisboa", {"meio": "comboio+aviao", "distancia": 670, "tempo": 4, "capacidade": 200, "combustivel": 1100, "bloqueio": 0.15, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0, "multimodal": "Rabat-Casablanca-Lisboa"}),
+    ("Tânger", "Rabat", {"meio": "comboio", "distancia": 250, "tempo": 2, "capacidade": 500, "combustivel": 80, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Tânger", "Málaga", {"meio": "ferry", "distancia": 160, "tempo": 2, "capacidade": 300, "combustivel": 200, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Tânger", "Lisboa", {"meio": "comboio+aviao", "distancia": 920, "tempo": 5, "capacidade": 200, "combustivel": 1300, "bloqueio": 0.15, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0, "multimodal": "Tânger-Casablanca-Lisboa"}),
+    ("Marraquexe", "Agadir", {"meio": "autocarro", "distancia": 250, "tempo": 3, "capacidade": 50, "combustivel": 75, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.1}),
+    ("Marraquexe", "Casablanca", {"meio": "comboio", "distancia": 240, "tempo": 2.5, "capacidade": 500, "combustivel": 80, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Marraquexe", "Madrid", {"meio": "aviao", "distancia": 1100, "tempo": 3, "capacidade": 200, "combustivel": 1800, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0}),
+    ("Agadir", "Marraquexe", {"meio": "autocarro", "distancia": 250, "tempo": 3, "capacidade": 50, "combustivel": 75, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.1}),
+    ("Agadir", "Casablanca", {"meio": "autocarro", "distancia": 450, "tempo": 5, "capacidade": 50, "combustivel": 135, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.1}),
+    ("Agadir", "Madrid", {"meio": "autocarro+aviao", "distancia": 1350, "tempo": 6, "capacidade": 200, "combustivel": 2000, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0, "multimodal": "Agadir-Marraquexe-Madrid"}),
+    ("Fez", "Casablanca", {"meio": "comboio", "distancia": 300, "tempo": 3, "capacidade": 500, "combustivel": 100, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.0, "bloqueio_urbano": 0.0}),
+    ("Fez", "Lisboa", {"meio": "comboio+aviao", "distancia": 880, "tempo": 6, "capacidade": 200, "combustivel": 1200, "bloqueio": 0.15, "chuva": 0.3, "nevoeiro": 0.2, "bloqueio_urbano": 0.0, "multimodal": "Fez-Casablanca-Lisboa"}),
+]
+G.add_edges_from([(u, v, d) for u, v, d in rotas])
+
+# Função para simular condições variáveis
+def simular_condicoes(G):
+    for u, v, d in G.edges(data=True):
+        # Chuva: 30% de chance, aumenta tempo em 20%
+        if random.random() < d["chuva"]:
+            d["tempo_ajustado"] = d["tempo"] * 1.2
+            d["condicao"] = "Chuva"
+        else:
+            d["tempo_ajustado"] = d["tempo"]
+            d["condicao"] = "Normal"
+
+        # Nevoeiro: 20% de chance para aviões e ferries, aumenta tempo em 50% ou bloqueia
+        if d["meio"] in ["aviao", "ferry", "comboio+aviao", "autocarro+aviao"] and random.random() < d["nevoeiro"]:
+            if random.random() < 0.5:  # 50% de chance de bloqueio total
+                d["tempo_ajustado"] = float('inf')  # Rota bloqueada
+                d["condicao"] = "Nevoeiro (Bloqueado)"
+            else:
+                d["tempo_ajustado"] = d["tempo"] * 1.5
+                d["condicao"] = "Nevoeiro (Atraso)"
+        
+        # Bloqueio urbano: 10% de chance para autocarros, bloqueia rota
+        if d["meio"] in ["autocarro", "comboio+autocarro"] and random.random() < d["bloqueio_urbano"]:
+            d["tempo_ajustado"] = float('inf')  # Rota bloqueada
+            d["condicao"] = "Bloqueio Urbano"
+
+# Simular condições
+simular_condicoes(G)
+
+# Visualizar grafo (nós e arestas)
+pos = nx.spring_layout(G)
+nx.draw(G, pos, with_labels=True, node_color="lightblue", node_size=500, font_size=10, edge_color="gray")
+plt.title("Grafo das Cidades-Sede do Mundial 2030 com Condições Variáveis")
+plt.show()
+
+# Listar atributos das cidades
+print("Atributos das Cidades:")
+for cidade in G.nodes:
+    print(f"{cidade}:")
+    print(f"  Demanda: {G.nodes[cidade]['demanda']}")
+    print(f"  Proximidade ao Estádio: {G.nodes[cidade]['proximidade_estadio']} km")
+    print(f"  Prioridade: {G.nodes[cidade]['prioridade']}")
+    print(f"  Janela de Tempo: {G.nodes[cidade]['janela_tempo']}")
+    print(f"  Frota: {G.nodes[cidade]['frota']}")
+
+# Listar rotas com condições
+print("\nRotas Viáveis com Condições:")
+for u, v, d in G.edges(data=True):
+    print(f"{u} -> {v}: Meio={d['meio']}, Tempo Original={d['tempo']}h, Tempo Ajustado={d.get('tempo_ajustado', d['tempo'])}h, Condição={d.get('condicao', 'Normal')}, Combustível={d['combustivel']}L, Capacidade={d['capacidade']}, Bloqueio={d['bloqueio']}")
