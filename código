@@ -606,3 +606,49 @@ if caminho_bfs:
     imprimir_resultados_bfs(caminho_bfs, condicoes_meteorologicas)
 else:
     print("Caminho não encontrado pelo BFS")
+
+
+def dfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas):
+    """
+    Algoritmo DFS (Depth-First Search) adaptado ao contexto multimodal com transportes e clima.
+    """
+    pilha = [(estado_inicial, [])]  # (estado atual, caminho acumulado)
+    visitados = set()
+
+    while pilha:
+        estado_atual, caminho = pilha.pop()
+        cidade_atual, transporte_atual = estado_atual
+
+        if estado_atual in visitados:
+            continue
+        visitados.add(estado_atual)
+
+        caminho = caminho + [estado_atual]
+
+        if cidade_atual == estado_objetivo[0]:
+            return caminho
+
+        movimentos = gerar_operadores_multimodais(grafo, estado_atual, condicoes_meteorologicas)
+
+        for mov in movimentos:
+            novo_estado = mov["estado"]
+            if novo_estado not in visitados:
+                pilha.append((novo_estado, caminho))
+
+    return None
+
+def executar_dfs(grafo, origem, destino, condicoes_meteorologicas):
+    """
+    Função de alto nível para executar o algoritmo DFS e imprimir o caminho encontrado.
+    """
+    estado_inicial = (origem, "nenhum")
+    estado_objetivo = (destino, None)
+
+    caminho_dfs = dfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas)
+
+    if caminho_dfs:
+        print(f"\nResultados para o algoritmo DFS ({origem} -> {destino}):")
+        imprimir_resultados_bfs(caminho_dfs, condicoes_meteorologicas)
+    else:
+        print(f"Caminho não encontrado pelo DFS de {origem} para {destino}.")
+
