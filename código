@@ -309,7 +309,7 @@ mostrar_condicoes(condicoes_meteorologicas)
 def tempo_para_custo(tempo_horas):
     return tempo_horas * 10
 
-
+#Ucs
 def ucs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas, veiculos_disponiveis):
     fronteira = []
     # Agora armazenamos (custo, tempo_total, estado, caminho)
@@ -351,7 +351,8 @@ def ucs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologi
 
 
 def imprimir_caminho_detalhado_com_avisos(caminho, condicoes_meteorologicas):
-    print("\nCaminho detalhado:")
+    print("\n" + "-"*50)
+    print("\nCaminho detalhado UCS:")
     tempo_total = 0
     custo_total = 0
     custo_por_hora_troca = 10.0  # podes ajustar este valor
@@ -410,6 +411,8 @@ velocidades = {
     "autocarro": 80,
 }
 
+
+#A*
 def heuristica_realista(grafo, cidade_atual, cidade_objetivo):
     if cidade_atual == cidade_objetivo:
         return 0
@@ -521,12 +524,13 @@ estado_objetivo = ("Marraquexe", None)
 caminho, custo = astar_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas, veiculos_disponiveis)
 
 if caminho:
-    print("\nResultados para o algoritmo A* (Bilbao -> Marraquexe):")
+    print("\n" + "-"*50)
+    print("\nResultados para o algoritmo A* :")
     imprimir_resultados_heuristica(caminho, condicoes_meteorologicas)
 else:
     print("Caminho não encontrado pelo A*")
 
-
+#BFS
 def bfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas):
     fila = deque()
     fila.append((estado_inicial, []))  # (estado, caminho)
@@ -553,12 +557,12 @@ def bfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologi
                 fila.append((novo_estado, caminho))
     
     return None  # se não encontrar caminho
-caminho_bfs = bfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas)
+
 
 def imprimir_resultados_bfs(caminho, condicoes_meteorologicas):
     tempo_total = 0
     custo_total = 0
-
+    print("\n" + "-"*50)
     print("\nCaminho detalhado (BFS):")
 
     for i in range(len(caminho) - 1):
@@ -595,24 +599,104 @@ def imprimir_resultados_bfs(caminho, condicoes_meteorologicas):
 
     print(f"\nTempo total da viagem: {tempo_total:.2f} horas")
     print(f"Custo total da viagem: {custo_total:.2f}")
-
+caminho_bfs = bfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas)
 # Uso após a execução do BFS
 if caminho_bfs:
     imprimir_resultados_bfs(caminho_bfs, condicoes_meteorologicas)
 else:
     print("Caminho não encontrado pelo BFS")
 
-if caminho_bfs:
-    imprimir_resultados_bfs(caminho_bfs, condicoes_meteorologicas)
+#GREEDY
+def greedy_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas, veiculos_disponiveis):
+    fronteira = []
+    # Prioridade só pela heurística, custo g não é acumulado aqui
+    h_inicial = heuristica_realista(grafo, estado_inicial[0], estado_objetivo[0])
+    heapq.heappush(fronteira, (h_inicial, estado_inicial, []))  # (heurística, estado, caminho)
+    visitados = set()
+
+    while fronteira:
+        heuristica_atual, estado_atual, caminho = heapq.heappop(fronteira)
+
+        if estado_atual in visitados:
+            continue
+        visitados.add(estado_atual)
+
+        cidade_atual, transporte_atual = estado_atual
+        caminho = caminho + [estado_atual]
+
+        if cidade_atual == estado_objetivo[0]:
+            return caminho  # retorna só o caminho, custo pode ser calculado depois
+
+        movimentos = gerar_operadores_multimodais(grafo, estado_atual, condicoes_meteorologicas)
+
+        for mov in movimentos:
+            novo_estado = mov["estado"]
+
+            if novo_estado not in visitados:
+                h = heuristica_realista(grafo, novo_estado[0], estado_objetivo[0])
+                heapq.heappush(fronteira, (h, novo_estado, caminho))
+
+    return None  # se não encontrar caminho
+
+def imprimir_resultados_greedy(caminho, condicoes_meteorologicas):
+    tempo_total = 0
+    custo_total = 0
+
+    print("\nCaminho detalhado (Greedy Best-First Search):")
+
+    for i in range(len(caminho) - 1):
+        origem, transporte_origem = caminho[i]
+        destino, transporte_destino = caminho[i + 1]
+
+        dados_ligacao = grafo.grafo[origem][destino]
+        distancia = dados_ligacao["distancia"]
+        transporte = transporte_destino
+
+        tempo_base = distancia / veiculos_disponiveis[transporte].velocidade
+        tempo_viagem = calcular_tempo_viagem(distancia, transporte, origem, destino, condicoes_meteorologicas)
+
+        custo_troca = 0 if transporte == transporte_origem else 5.0
+
+        # Tempo da etapa excluindo custo troca
+        tempo_etapa = tempo_viagem
+
+        # Custo da etapa: custo do tempo + custo fixo da troca
+        custo_etapa = tempo_para_custo(tempo_etapa) + custo_troca
+
+        tempo_total += tempo_etapa + custo_troca
+        custo_total += custo_etapa
+
+        aviso = ""
+        if tempo_viagem > tempo_base:
+            aviso += f" (penalização meteorológica aplicada: +{tempo_viagem - tempo_base:.2f}h)"
+        if custo_troca > 0:
+            aviso += f" (custo troca transporte: +{custo_troca:.2f})"
+
+        print(f"{origem} -> {destino}, transporte: {transporte}, tempo base: {tempo_base:.2f}h, "
+              f"tempo etapa: {tempo_viagem:.2f}h, custo etapa: {custo_etapa:.2f}{aviso}")
+
+    print(f"\nTempo total da viagem: {tempo_total:.2f} horas")
+    print(f"Custo total da viagem: {custo_total:.2f}")
+
+estado_inicial = ("Lisboa", "nenhum")
+estado_objetivo = ("Marraquexe", None)
+
+caminho_greedy = greedy_multimodal(
+    grafo,
+    estado_inicial,
+    estado_objetivo,
+    condicoes_meteorologicas,
+    veiculos_disponiveis
+)
+
+if caminho_greedy:
+    imprimir_resultados_greedy(caminho_greedy, condicoes_meteorologicas)
 else:
-    print("Caminho não encontrado pelo BFS")
+    print("Caminho não encontrado pelo Greedy")
 
-
+#DFS
 def dfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas):
-    """
-    Algoritmo DFS (Depth-First Search) adaptado ao contexto multimodal com transportes e clima.
-    """
-    pilha = [(estado_inicial, [])]  # (estado atual, caminho acumulado)
+    pilha = [(estado_inicial, [])]  # cada elemento: (estado_atual, caminho percorrido)
     visitados = set()
 
     while pilha:
@@ -625,9 +709,11 @@ def dfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologi
 
         caminho = caminho + [estado_atual]
 
+        # Se chegámos à cidade objetivo, retornamos o caminho
         if cidade_atual == estado_objetivo[0]:
             return caminho
 
+        # Gerar movimentos possíveis a partir do estado atual
         movimentos = gerar_operadores_multimodais(grafo, estado_atual, condicoes_meteorologicas)
 
         for mov in movimentos:
@@ -635,20 +721,52 @@ def dfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologi
             if novo_estado not in visitados:
                 pilha.append((novo_estado, caminho))
 
-    return None
+    return None  # se não encontrar caminho
 
-def executar_dfs(grafo, origem, destino, condicoes_meteorologicas):
-    """
-    Função de alto nível para executar o algoritmo DFS e imprimir o caminho encontrado.
-    """
-    estado_inicial = (origem, "nenhum")
-    estado_objetivo = (destino, None)
+def imprimir_resultados_dfs(caminho, condicoes_meteorologicas):
+    tempo_total = 0
+    custo_total = 0
 
-    caminho_dfs = dfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas)
+    print("\nResultados para o DFS:")
+    for i in range(len(caminho) - 1):
+        origem, transporte_origem = caminho[i]
+        destino, transporte_destino = caminho[i+1]
 
-    if caminho_dfs:
-        print(f"\nResultados para o algoritmo DFS ({origem} -> {destino}):")
-        imprimir_resultados_bfs(caminho_dfs, condicoes_meteorologicas)
-    else:
-        print(f"Caminho não encontrado pelo DFS de {origem} para {destino}.")
+        dados_ligacao = grafo.grafo[origem][destino]
+        distancia = dados_ligacao["distancia"]
+        transporte = transporte_destino
 
+        tempo_base = distancia / veiculos_disponiveis[transporte].velocidade
+        tempo_viagem = calcular_tempo_viagem(distancia, transporte, origem, destino, condicoes_meteorologicas)
+
+        custo_troca = 0 if transporte == transporte_origem else 5.0
+
+        # Tempo da etapa (só viagem)
+        tempo_etapa = tempo_viagem
+        # Custo da etapa (tempo convertido + custo troca)
+        custo_etapa = tempo_para_custo(tempo_etapa) + custo_troca
+
+        tempo_total += tempo_etapa + custo_troca
+        custo_total += custo_etapa
+
+        aviso = ""
+        if tempo_viagem > tempo_base:
+            aviso += f" (penalização meteorológica aplicada: +{tempo_viagem - tempo_base:.2f}h)"
+        if custo_troca > 0:
+            aviso += f" (custo troca transporte: +{custo_troca:.2f})"
+
+        print(f"{origem} -> {destino}, transporte: {transporte}, tempo base: {tempo_base:.2f}h, "
+              f"tempo etapa: {tempo_etapa:.2f}h, custo etapa: {custo_etapa:.2f}{aviso}")
+
+    print(f"\nTempo total da viagem: {tempo_total:.2f} horas")
+    print(f"Custo total da viagem: {custo_total:.2f}")
+
+estado_inicial = ("Bilbao", "nenhum")
+estado_objetivo = ("Marraquexe", None)
+
+caminho_dfs = dfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas)
+
+if caminho_dfs:
+    imprimir_resultados_dfs(caminho_dfs, condicoes_meteorologicas)
+else:
+    print("Caminho não encontrado pelo DFS")
