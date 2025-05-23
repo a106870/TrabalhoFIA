@@ -1,361 +1,608 @@
+import random
 import networkx as nx
 import matplotlib.pyplot as plt
-import random
-import copy
+import heapq
 from collections import deque
 
-# Criar grafo direcionado
-G = nx.DiGraph()
 
-# Definir as 14 cidades (nós)
-cidades = [
-    "Porto", "Lisboa", 
-    "Madrid", "Barcelona", "Sevilha", "Málaga", "Las Palmas",
-    "Casablanca", "Rabat", "Tânger", "Agadir", "Fez", "Marraquexe"
-]
-G.add_nodes_from(cidades)
+class Grafo:
+    def __init__(self):
+        self.grafo = {}
 
-# Definir frota de veículos (global, por cidade)
-frota_base = {
-    "autocarro": {
-        "capacidade": 50,
-        "autonomia": 300,  # km
-        "velocidade": 80,  # km/h
-        "consumo_combustivel": 0.3,  # L/km
-        "quantidade": 20
-    },
-    "comboio": {
-        "capacidade": 500,
-        "autonomia": float('inf'),  # Infinita (elétrico)
-        "velocidade": 200,  # km/h
-        "consumo_combustivel": 0.5,  # L/km
-        "quantidade": 10
-    },
-    "aviao": {
-        "capacidade": 200,
-        "autonomia": 1000,  # km
-        "velocidade": 600,  # km/h
-        "consumo_combustivel": 1000,  # L/h
-        "quantidade": 5
-    },
-    "ferry": {
-        "capacidade": 300,
-        "autonomia": 500,  # km
-        "velocidade": 100,  # km/h
-        "consumo_combustivel": 200,  # L/h
-        "quantidade": 0  # Ajustado por cidade
-    },
-    "metro": {
-        "capacidade": 1000,
-        "autonomia": 50,  # km (curtas distâncias urbanas)
-        "velocidade": 40,  # km/h
-        "consumo_combustivel": 5,  # L/km
-        "quantidade": 0  # Ajustado por cidade
-    }
-}
-
-# Definir atributos para cada cidade
-for cidade in cidades:
-    # Demanda: número de pessoas a transportar
-    if cidade in ["Lisboa", "Madrid", "Barcelona", "Casablanca", "Marraquexe"]:  # Cidades principais
-        G.nodes[cidade]["demanda"] = 500000
-    elif cidade in ["Porto", "Sevilha", "Málaga"]:  # Cidades secundárias
-        G.nodes[cidade]["demanda"] = 200000
-    else:  # Cidades menores (Las Palmas, Rabat, Tânger, Agadir, Fez)
-        G.nodes[cidade]["demanda"] = 50000
-
-    # Proximidade aos estádios: distância média em km
-    if cidade in ["Lisboa", "Porto", "Madrid", "Barcelona"]:  # Cidades com estádios centrais
-        G.nodes[cidade]["proximidade_estadio"] = 5
-    else:  # Outras cidades, estádios mais distantes
-        G.nodes[cidade]["proximidade_estadio"] = 10
-
-    # Prioridade: P = 0.7 * demanda + 0.3 * (1/proximidade)
-    G.nodes[cidade]["prioridade"] = (
-        0.7 * G.nodes[cidade]["demanda"] + 
-        0.3 * (1 / G.nodes[cidade]["proximidade_estadio"])
-    )
-
-    # Janela de tempo: lista de intervalos com base em horários dos jogos
-    if cidade in ["Lisboa", "Madrid", "Barcelona", "Casablanca", "Marraquexe"]:  # Cidades principais, 2 jogos (16h, 20h)
-        G.nodes[cidade]["janela_tempo"] = [(12, 15), (16, 19)]  # 16h: 12h-15h, 20h: 16h-19h
-    else:  # Cidades secundárias/menores, 1 jogo (16h)
-        G.nodes[cidade]["janela_tempo"] = [(12, 15)]  # 16h: 12h-15h
-
-    # Associar frota à cidade
-    G.nodes[cidade]["frota"] = {
-        "autocarro": frota_base["autocarro"].copy(),
-        "comboio": frota_base["comboio"].copy(),
-        "aviao": frota_base["aviao"].copy(),
-        "ferry": frota_base["ferry"].copy(),
-        "metro": frota_base["metro"].copy()
-    }
-    G.nodes[cidade]["frota"]["ferry"]["quantidade"] = 2 if cidade in ["Málaga", "Tânger"] else 0
-    G.nodes[cidade]["frota"]["metro"]["quantidade"] = 5 if cidade in ["Lisboa", "Madrid", "Barcelona", "Casablanca"] else 0
-
-# Definir rotas viáveis (tabela completa, 50 rotas)
-rotas = [
-    ("Porto", "Lisboa", {"meio": "comboio", "distancia": 300, "tempo": 2.5, "capacidade": 500, "combustivel": 150, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Porto", "Lisboa", {"meio": "autocarro", "distancia": 300, "tempo": 3.5, "capacidade": 50, "combustivel": 90, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.15, "acidentes": 0.05}),
-    ("Porto", "Madrid", {"meio": "aviao", "distancia": 550, "tempo": 2, "capacidade": 200, "combustivel": 1200, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Porto", "Barcelona", {"meio": "aviao", "distancia": 900, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Porto", "Sevilha", {"meio": "aviao", "distancia": 600, "tempo": 2, "capacidade": 200, "combustivel": 1200, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Porto", "Casablanca", {"meio": "aviao", "distancia": 850, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Lisboa", "Madrid", {"meio": "aviao", "distancia": 500, "tempo": 2, "capacidade": 200, "combustivel": 1000, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Lisboa", "Madrid", {"meio": "comboio", "distancia": 620, "tempo": 3.5, "capacidade": 500, "combustivel": 200, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Lisboa", "Barcelona", {"meio": "aviao", "distancia": 1000, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Lisboa", "Sevilha", {"meio": "aviao", "distancia": 450, "tempo": 2, "capacidade": 200, "combustivel": 1000, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Lisboa", "Málaga", {"meio": "aviao", "distancia": 500, "tempo": 2, "capacidade": 200, "combustivel": 1000, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Lisboa", "Casablanca", {"meio": "aviao", "distancia": 580, "tempo": 2, "capacidade": 200, "combustivel": 1000, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Lisboa", "Las Palmas", {"meio": "aviao", "distancia": 1300, "tempo": 3, "capacidade": 200, "combustivel": 1800, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Madrid", "Barcelona", {"meio": "comboio", "distancia": 620, "tempo": 2.5, "capacidade": 500, "combustivel": 200, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Madrid", "Barcelona", {"meio": "aviao", "distancia": 600, "tempo": 2, "capacidade": 200, "combustivel": 1200, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Madrid", "Sevilha", {"meio": "comboio", "distancia": 470, "tempo": 2.5, "capacidade": 500, "combustivel": 150, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Madrid", "Málaga", {"meio": "comboio", "distancia": 550, "tempo": 2.5, "capacidade": 500, "combustivel": 165, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Madrid", "Málaga", {"meio": "aviao", "distancia": 500, "tempo": 2, "capacidade": 200, "combustivel": 1000, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Madrid", "Casablanca", {"meio": "aviao", "distancia": 850, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Madrid", "Las Palmas", {"meio": "aviao", "distancia": 1750, "tempo": 3.5, "capacidade": 200, "combustivel": 2100, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Barcelona", "Sevilha", {"meio": "comboio", "distancia": 1000, "tempo": 5, "capacidade": 500, "combustivel": 300, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Barcelona", "Málaga", {"meio": "comboio", "distancia": 900, "tempo": 4.5, "capacidade": 500, "combustivel": 270, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Barcelona", "Málaga", {"meio": "aviao", "distancia": 800, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Barcelona", "Casablanca", {"meio": "aviao", "distancia": 1200, "tempo": 3, "capacidade": 200, "combustivel": 1800, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Sevilha", "Málaga", {"meio": "comboio", "distancia": 200, "tempo": 2, "capacidade": 500, "combustivel": 60, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Sevilha", "Málaga", {"meio": "autocarro", "distancia": 200, "tempo": 2.5, "capacidade": 50, "combustivel": 60, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.15, "acidentes": 0.05}),
-    ("Sevilha", "Casablanca", {"meio": "aviao", "distancia": 700, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Málaga", "Tânger", {"meio": "ferry", "distancia": 160, "tempo": 2, "capacidade": 300, "combustivel": 200, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Málaga", "Casablanca", {"meio": "aviao", "distancia": 600, "tempo": 2, "capacidade": 200, "combustivel": 1200, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Las Palmas", "Casablanca", {"meio": "aviao", "distancia": 1000, "tempo": 2.5, "capacidade": 200, "combustivel": 1500, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Las Palmas", "Madrid", {"meio": "aviao", "distancia": 1750, "tempo": 3.5, "capacidade": 200, "combustivel": 2100, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Casablanca", "Rabat", {"meio": "comboio", "distancia": 90, "tempo": 1, "capacidade": 500, "combustivel": 30, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Casablanca", "Rabat", {"meio": "autocarro", "distancia": 90, "tempo": 1.5, "capacidade": 50, "combustivel": 27, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.15, "acidentes": 0.05}),
-    ("Casablanca", "Tânger", {"meio": "comboio", "distancia": 340, "tempo": 2.5, "capacidade": 500, "combustivel": 100, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Casablanca", "Marraquexe", {"meio": "comboio", "distancia": 240, "tempo": 2.5, "capacidade": 500, "combustivel": 80, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Casablanca", "Fez", {"meio": "comboio", "distancia": 300, "tempo": 3, "capacidade": 500, "combustivel": 100, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Rabat", "Tânger", {"meio": "comboio", "distancia": 250, "tempo": 2, "capacidade": 500, "combustivel": 80, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Rabat", "Tânger", {"meio": "autocarro", "distancia": 250, "tempo": 3, "capacidade": 50, "combustivel": 75, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.15, "acidentes": 0.05}),
-    ("Rabat", "Lisboa", {"meio": "comboio+aviao", "distancia": 670, "tempo": 4, "capacidade": 200, "combustivel": 1100, "bloqueio": 0.15, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0, "multimodal": "Rabat-Casablanca-Lisboa"}),
-    ("Tânger", "Rabat", {"meio": "comboio", "distancia": 250, "tempo": 2, "capacidade": 500, "combustivel": 80, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Tânger", "Málaga", {"meio": "ferry", "distancia": 160, "tempo": 2, "capacidade": 300, "combustivel": 200, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Tânger", "Lisboa", {"meio": "comboio+aviao", "distancia": 920, "tempo": 5, "capacidade": 200, "combustivel": 1300, "bloqueio": 0.15, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0, "multimodal": "Tânger-Casablanca-Lisboa"}),
-    ("Marraquexe", "Agadir", {"meio": "autocarro", "distancia": 250, "tempo": 3, "capacidade": 50, "combustivel": 75, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.15, "acidentes": 0.05}),
-    ("Marraquexe", "Casablanca", {"meio": "comboio", "distancia": 240, "tempo": 2.5, "capacidade": 500, "combustivel": 80, "bloqueio": 0.05, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Marraquexe", "Madrid", {"meio": "aviao", "distancia": 1100, "tempo": 3, "capacidade": 200, "combustivel": 1800, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Agadir", "Marraquexe", {"meio": "autocarro", "distancia": 250, "tempo": 3, "capacidade": 50, "combustivel": 75, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.15, "acidentes": 0.05}),
-    ("Agadir", "Casablanca", {"meio": "autocarro", "distancia": 450, "tempo": 5, "capacidade": 50, "combustivel": 135, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.15, "acidentes": 0.05}),
-    ("Agadir", "Madrid", {"meio": "autocarro+aviao", "distancia": 1350, "tempo": 6, "capacidade": 200, "combustivel": 2000, "bloqueio": 0.2, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0, "multimodal": "Agadir-Marraquexe-Madrid"}),
-    ("Fez", "Casablanca", {"meio": "comboio", "distancia": 300, "tempo": 3, "capacidade": 500, "combustivel": 100, "bloqueio": 0.1, "chuva": 0.3, "nevoeiro": 0.0, "faixas_cortadas": 0.0, "acidentes": 0.0}),
-    ("Fez", "Lisboa", {"meio": "comboio+aviao", "distancia": 880, "tempo": 6, "capacidade": 200, "combustivel": 1200, "bloqueio": 0.15, "chuva": 0.3, "nevoeiro": 0.2, "faixas_cortadas": 0.0, "acidentes": 0.0, "multimodal": "Fez-Casablanca-Lisboa"}),
-]
-G.add_edges_from([(u, v, d) for u, v, d in rotas])
-
-# Função para simular condições variáveis
-def simular_condicoes(G):
-    for u, v, d in G.edges(data=True):
-        # Chuva: 30% de chance, aumenta tempo em 20%
-        if random.random() < d["chuva"]:
-            d["tempo_ajustado"] = d["tempo"] * 1.2
-            d["condicao"] = "Chuva"
-        else:
-            d["tempo_ajustado"] = d["tempo"]
-            d["condicao"] = "Normal"
-
-        # Nevoeiro: 20% de chance para aviões e ferries, aumenta tempo em 50% ou bloqueia
-        if d["meio"] in ["aviao", "ferry", "comboio+aviao", "autocarro+aviao"] and random.random() < d["nevoeiro"]:
-            if random.random() < 0.5:  # 50% de chance de bloqueio total
-                d["tempo_ajustado"] = float('inf')  # Rota bloqueada
-                d["condicao"] = "Nevoeiro (Bloqueado)"
-            else:
-                d["tempo_ajustado"] = d["tempo"] * 1.5
-                d["condicao"] = "Nevoeiro (Atraso)"
-
-        # Faixas cortadas: 15% de chance para autocarros, aumenta tempo em 30%
-        if d["meio"] in ["autocarro"] and random.random() < d["faixas_cortadas"]:
-            d["tempo_ajustado"] = d["tempo"] * 1.3
-            d["condicao"] = "Faixas Cortadas"
-
-        # Acidentes: 5% de chance para autocarros, bloqueia rota
-        if d["meio"] in ["autocarro"] and random.random() < d["acidentes"]:
-            d["tempo_ajustado"] = float('inf')  # Rota bloqueada
-            d["condicao"] = "Acidente"
-
-# Classe para formular o problema de procura
-class TransportProblem:
-    def __init__(self, grafo, cidade_inicial, cidade_final, hora_inicial, demanda):
-        self.grafo = grafo
-        self.cidade_inicial = cidade_inicial
-        self.cidade_final = cidade_final
-        self.hora_inicial = hora_inicial
-        self.demanda = demanda
-
-    def initial_state(self):
-        return {
-            'cidade': self.cidade_inicial,
-            'frota': copy.deepcopy(self.grafo.nodes[self.cidade_inicial]['frota']),  # Cópia profunda da frota
-            'hora': self.hora_inicial,
-            'pessoas_transportadas': 0,
-            'demanda_restante': self.demanda,
-            'custo_acumulado': 0,  # Custo total (tempo + combustível)
-            'veiculos_usados': []  # Lista de veículos alocados
+    def adicionar_ligacao(self, origem, destino, distancia, transportes):
+        if origem not in self.grafo:
+            self.grafo[origem] = {}
+        self.grafo[origem][destino] = {
+            "distancia": distancia,
+            "transportes": transportes
         }
 
-    def goal_test(self, state):
-        # Objetivo: Estar na cidade final, ter transportado a demanda, dentro da janela de tempo
-        janela = self.grafo.nodes[self.cidade_final]['janela_tempo'][0][1]  # e.g., 15h
-        return (state['cidade'] == self.cidade_final and
-                state['pessoas_transportadas'] >= self.demanda and
-                state['hora'] <= janela)
+    def obter_ligacoes(self, cidade):
+        return self.grafo.get(cidade, {})
 
-    def actions(self, state):
-        # Retorna rotas disponíveis da cidade atual, com veículos disponíveis
-        acoes = []
-        for u, v, d in self.grafo.out_edges(state['cidade'], data=True):
-            meio = d['meio']
-            # Verifica se há veículos disponíveis e se a rota não está bloqueada
-            if (state['frota'][meio.split('+')[0]]['quantidade'] > 0 and  # Considera o primeiro meio em rotas multimodais
-                d['tempo_ajustado'] != float('inf')):
-                acoes.append((v, meio))
-        return acoes
+    def mostrar_grafo(self):
+        for origem, destinos in self.grafo.items():
+            for destino, dados in destinos.items():
+                print(f"{origem} -> {destino} | {dados}")
 
-    def result(self, state, action):
-        # Aplica a ação (mover para cidade destino usando um meio) e retorna novo estado
-        cidade_destino, meio = action
-        # Encontrar a aresta correspondente
-        for u, v, d in self.grafo.out_edges(state['cidade'], data=True):
-            if v == cidade_destino and d['meio'] == meio:
-                edge_data = d
-                break
-        
-        novo_estado = copy.deepcopy(state)  # Cópia profunda para evitar mutação
-        novo_estado['cidade'] = cidade_destino
-        novo_estado['hora'] += edge_data['tempo_ajustado']
-        pessoas = min(edge_data['capacidade'], novo_estado['demanda_restante'])  # Transporta o mínimo entre capacidade e demanda
-        novo_estado['pessoas_transportadas'] += pessoas
-        novo_estado['demanda_restante'] -= pessoas
-        # Atualiza frota (assume 1 veículo usado por ação)
-        meio_principal = meio.split('+')[0]  # e.g., 'comboio' em 'comboio+aviao'
-        novo_estado['frota'][meio_principal]['quantidade'] -= 1
-        # Acumula custo
-        novo_estado['custo_acumulado'] += (0.6 * edge_data['tempo_ajustado'] + 0.3 * edge_data['combustivel'])
-        # Registra veículo usado
-        novo_estado['veiculos_usados'].append((meio, cidade_destino, edge_data['capacidade'], edge_data['tempo_ajustado'], edge_data['combustivel'], edge_data.get('condicao', 'Normal')))
-        return novo_estado
+class Veiculo:
+    def __init__(self, nome, capacidade, velocidade, autonomia):
+        self.nome = nome
+        self.capacidade = capacidade            # nº máximo de passageiros
+        self.velocidade = velocidade            # km/h
+        self.autonomia = autonomia              # km antes de reabastecer
 
-    def path_cost(self, custo_atual, state, action, proximo_estado):
-        # Custo acumulado: tempo ajustado (60%) + combustível (30%) + penalidade por demanda restante (10%)
-        cidade_destino, meio = action
-        for u, v, d in self.grafo.out_edges(state['cidade'], data=True):
-            if v == cidade_destino and d['meio'] == meio:
-                edge_data = d
-                break
-        penalidade = 0.1 * proximo_estado['demanda_restante']  # Penalidade proporcional à demanda não atendida
-        return custo_atual + (0.6 * edge_data['tempo_ajustado'] + 0.3 * edge_data['combustivel'] + penalidade)
-
-# Função para encontrar o caminho mais curto (BFS)
-def encontrar_caminho(problema, cidade_inicial, cidade_final):
-    estado_inicial = problema.initial_state()
-    if cidade_inicial == cidade_final:
-        return []
-
-    # Fila para BFS: (estado, caminho até aqui, ações tomadas)
-    fila = deque([(estado_inicial, [cidade_inicial], [])])
-    visitados = set([cidade_inicial])
-
-    while fila:
-        estado, caminho, acoes = fila.popleft()
-        cidade_atual = estado['cidade']
-
-        for acao in problema.actions(estado):
-            cidade_destino, meio = acao
-            if cidade_destino in visitados:
-                continue
-
-            novo_estado = problema.result(estado, acao)
-            novo_caminho = caminho + [cidade_destino]
-            novas_acoes = acoes + [acao]
-
-            if cidade_destino == cidade_final:
-                return novas_acoes  # Retorna a lista de ações para chegar ao destino
-
-            visitados.add(cidade_destino)
-            fila.append((novo_estado, novo_caminho, novas_acoes))
-
-    return None  # Nenhum caminho encontrado
-
-# Função para o menu interativo
-def menu_interativo(G):
-    print("\n=== Planejador de Transporte - Mundial 2030 ===")
+    def __str__(self):
+        return f"{self.nome}: Cap={self.capacidade}, Vel={self.velocidade}km/h, Aut={self.autonomia}km"
     
-    # Simular condições antes de começar
-    simular_condicoes(G)
+veiculos_disponiveis = {
+    "autocarro": Veiculo("Autocarro", capacidade=50, velocidade=80, autonomia=600),
+    "comboio": Veiculo("Comboio", capacidade=200, velocidade=120, autonomia=1500),
+    "avião": Veiculo("Avião", capacidade=300, velocidade=800, autonomia=3000)
+}
+
+distancias_aereas = {
+    ("Lisboa", "Madrid"): 500,
+    ("Lisboa", "Porto"): 270,
+    ("Lisboa", "Casablanca"): 600,
+    ("Porto", "Madrid"): 480,
+    ("Madrid", "Barcelona"): 500,
+    ("Madrid", "Sevilla"): 390,
+    ("Madrid", "Bilbao"): 350,
+    ("Barcelona", "Bilbao"): 450,
+    ("Casablanca", "Rabat"): 90,
+    ("Casablanca", "Marraquexe"): 240,
+    ("Rabat", "Tânger"): 250,
+    ("Tânger", "Sevilla"): 340,
+    ("Sevilla", "Lisboa"): 460,
+    ("Marraquexe", "Casablanca"): 240,
+    # Também para o sentido inverso
+    ("Madrid", "Lisboa"): 500,
+    ("Porto", "Lisboa"): 270,
+    ("Casablanca", "Lisboa"): 600,
+    ("Madrid", "Porto"): 480,
+    ("Barcelona", "Madrid"): 500,
+    ("Sevilla", "Madrid"): 390,
+    ("Bilbao", "Madrid"): 350,
+    ("Bilbao", "Barcelona"): 450,
+    ("Rabat", "Casablanca"): 90,
+    ("Marraquexe", "Casablanca"): 240,
+    ("Tânger", "Rabat"): 250,
+    ("Sevilla", "Tânger"): 340,
+    ("Lisboa", "Sevilla"): 460,
+}
+# Instanciar grafo e adicionar as ligações
+def criar_grafo_mundial2030():
+    grafo = Grafo()
+    grafo.adicionar_ligacao("Lisboa", "Madrid", 625, ["autocarro", "comboio", "avião"])
+    grafo.adicionar_ligacao("Lisboa", "Porto", 313, ["autocarro", "comboio"])
+    grafo.adicionar_ligacao("Lisboa", "Casablanca", 820, ["avião"])
+    grafo.adicionar_ligacao("Porto", "Lisboa", 313, ["autocarro", "comboio"])
+    grafo.adicionar_ligacao("Porto", "Madrid", 560, ["autocarro", "avião"])
+
+# Espanha
+    grafo.adicionar_ligacao("Madrid", "Barcelona", 620, ["autocarro", "comboio", "avião"])
+    grafo.adicionar_ligacao("Madrid", "Sevilla", 530, ["autocarro", "comboio", "avião"])
+    grafo.adicionar_ligacao("Madrid", "Bilbao", 400, ["comboio", "avião"])
+    grafo.adicionar_ligacao("Madrid", "Porto", 560, ["autocarro", "avião"])
+    grafo.adicionar_ligacao("Barcelona", "Madrid", 620, ["autocarro", "comboio", "avião"])
+    grafo.adicionar_ligacao("Barcelona", "Bilbao", 610, ["comboio"])
+    grafo.adicionar_ligacao("Sevilla", "Madrid", 530, ["autocarro", "comboio"])
+    grafo.adicionar_ligacao("Sevilla", "Lisboa", 460, ["autocarro","avião"])
+    grafo.adicionar_ligacao("Sevilla", "Tânger", 270, ["avião"])
+    grafo.adicionar_ligacao("Bilbao", "Madrid", 400, ["comboio", "avião"])
+    grafo.adicionar_ligacao("Bilbao", "Barcelona", 610, ["comboio"])
+
+# Marrocos
+    grafo.adicionar_ligacao("Casablanca", "Lisboa", 820, ["avião"])
+    grafo.adicionar_ligacao("Casablanca", "Rabat", 90, ["comboio", "autocarro"])
+    grafo.adicionar_ligacao("Casablanca", "Marraquexe", 240, ["comboio", "autocarro"])
+    grafo.adicionar_ligacao("Rabat", "Casablanca", 90, ["comboio", "autocarro"])
+    grafo.adicionar_ligacao("Rabat", "Tânger", 250, ["comboio", "autocarro"])
+    grafo.adicionar_ligacao("Tânger", "Rabat", 250, ["comboio", "autocarro"])
+    grafo.adicionar_ligacao("Tânger", "Sevilla", 270, ["avião"])
+    grafo.adicionar_ligacao("Marraquexe", "Casablanca", 240, ["comboio", "autocarro"])
+    grafo.mostrar_grafo()
+    return grafo
+    # para visualização gráfica (com matplotlib)
+
+def desenhar_grafo(grafo):
+    G = nx.DiGraph()
+
+    for origem in grafo.grafo:
+        for destino, dados in grafo.grafo[origem].items():
+            label = ", ".join(dados["transportes"])
+            G.add_edge(origem, destino, label=label)
+
+    pos = nx.spring_layout(G, seed=42)
+    edge_labels = nx.get_edge_attributes(G, 'label')
+    nx.draw(G, pos, with_labels=True, node_size=2000, node_color='lightblue', font_size=10)
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color='red')
+    plt.title("Mapa de Ligações entre Cidades")
+    plt.show()
+    input("Pressiona Enter para terminar...")
+# Visualizar o grafo
+grafo = criar_grafo_mundial2030()
+grafo.mostrar_grafo()         # para visualização textual
+desenhar_grafo(grafo) 
+
+
+
+def simular_condicoes_meteorologicas(grafo, probabilidade_afetacao=0.2):
+    """
+    Simula condições meteorológicas adversas sobre algumas ligações do grafo.
     
-    # Escolher cidade inicial
-    print("\nCidades disponíveis:", ", ".join(cidades))
+    Args:
+        grafo (Grafo): O grafo com as ligações.
+        probabilidade_afetacao (float): Probabilidade de uma rota ser afetada (entre 0 e 1).
+    
+    Returns:
+        dict: Dicionário com rotas afetadas e os transportes impactados.
+    """
+    condicoes = {}
+    tipos_clima = ["chuva", "nevoeiro", "calor extremo"]
+    impacto_por_clima = {
+        "chuva": ["autocarro", "comboio"],
+        "nevoeiro": ["avião"],
+        "calor extremo": ["comboio", "avião"]
+    }
+
+    for origem in grafo.grafo:
+        for destino in grafo.grafo[origem]:
+            if random.random() < probabilidade_afetacao:
+                clima = random.choice(tipos_clima)
+                transportes_afetados = [
+                    t for t in grafo.grafo[origem][destino]["transportes"]
+                    if t in impacto_por_clima[clima]
+                ]
+                if transportes_afetados:
+                    condicoes[(origem, destino)] = {
+                        "clima": clima,
+                        "afeta": transportes_afetados
+                    }
+
+    return condicoes
+
+def obter_estados_do_utilizador(grafo):
+    cidades = list(grafo.grafo.keys())
+
     while True:
-        cidade_inicial = input("Escolha a cidade inicial: ").strip()
-        if cidade_inicial in cidades:
+        origem = input("Cidade de partida: ").strip().capitalize()
+        if origem in cidades:
             break
-        print("Cidade inválida. Tente novamente.")
-    
-    # Escolher cidade final
+        print("Cidade inválida. Tenta novamente.")
+
     while True:
-        cidade_final = input("Escolha a cidade final: ").strip()
-        if cidade_final in cidades and cidade_final != cidade_inicial:
+        destino = input("Cidade de destino: ").strip().capitalize()
+        if destino in cidades:
             break
-        print("Cidade inválida ou igual à inicial. Tente novamente.")
-    
-    # Criar problema de transporte
-    problema = TransportProblem(
-        grafo=G,
-        cidade_inicial=cidade_inicial,
-        cidade_final=cidade_final,
-        hora_inicial=10,  # Hora inicial fixa (pode ser ajustada)
-        demanda=G.nodes[cidade_inicial]['demanda']  # Demanda da cidade inicial
-    )
-    
-    # Encontrar o caminho usando BFS
-    caminho_acoes = encontrar_caminho(problema, cidade_inicial, cidade_final)
-    if not caminho_acoes:
-        print(f"\nNenhuma rota disponível de {cidade_inicial} para {cidade_final} (bloqueada ou sem frota).")
+        print("Cidade inválida. Tenta novamente.")
+
+    return origem, destino
+
+
+def gerar_operadores_multimodais(grafo, estado_atual, condicoes):
+    cidade_atual, transporte_atual = estado_atual
+    movimentos = []
+
+    ligacoes = grafo.obter_ligacoes(cidade_atual)
+    for destino, dados in ligacoes.items():
+        for transporte in dados["transportes"]:
+            # Verificar se transporte está afetado por clima
+            if (cidade_atual, destino) in condicoes:
+                if transporte in condicoes[(cidade_atual, destino)]["afeta"]:
+                    continue  # bloqueado
+
+            # Custo extra se mudar de transporte
+            custo_troca = 0
+            if transporte != transporte_atual and transporte_atual != "nenhum":
+                custo_troca = 0.5  # penalização só se mudar de transporte depois de começar a viajar
+            else:
+                custo_troca = 0
+
+            movimentos.append({
+                "estado": (destino, transporte),
+                "distancia": dados["distancia"],
+                "transporte": transporte,
+                "custo_troca": custo_troca
+            })
+    return movimentos
+
+def calcular_tempo_viagem(distancia, transporte, origem, destino, condicoes_meteorologicas):
+    velocidade = veiculos_disponiveis[transporte].velocidade
+    tempo_base = distancia / velocidade
+
+    penalizacao = 1.0  # sem penalização
+
+    if (origem, destino) in condicoes_meteorologicas:
+        condicao = condicoes_meteorologicas[(origem, destino)]
+        if transporte in condicao["afeta"]:
+            if condicao["clima"] == "chuva":
+                penalizacao = 1.25 if transporte in ["autocarro", "comboio"] else 1.0
+            elif condicao["clima"] == "nevoeiro":
+                penalizacao = 1.5 if transporte == "avião" else 1.0
+            elif condicao["clima"] == "calor extremo":
+                penalizacao = 1.2 if transporte in ["comboio", "avião"] else 1.0
+
+    return tempo_base * penalizacao
+
+eventos_importantes = ["Madrid", "Lisboa", "Sevilla"]
+
+def calcular_prioridade(zona):
+    procura = procura_por_zona.get(zona, 0)
+    evento = 10 if zona in eventos_importantes else 0
+    dificuldade = 2 if zona in ["Marraquexe", "Tânger"] else 0
+    prioridade_base = (procura / procura_maxima) * 10
+    prioridade_total = prioridade_base + evento + dificuldade
+    return min(10, round(prioridade_total))
+
+def gerar_procura_por_zona(cidades, minimo=2000, maximo=15000):
+    return {cidade: random.randint(minimo, maximo) for cidade in cidades}
+
+cidades = ["Lisboa", "Madrid", "Barcelona", "Sevilla", "Porto",
+           "Bilbao", "Casablanca", "Rabat", "Tânger", "Marraquexe"]
+
+procura_por_zona = gerar_procura_por_zona(cidades)
+procura_maxima = max(procura_por_zona.values())
+
+
+def calcular_pessoas_transportadas(grafo, origem, destino, condicoes_meteorologicas,
+                                   veiculos_disponiveis, disponibilidade_veiculos,
+                                   tempo_limite=19.75):
+    movimentos = gerar_operadores_multimodais(grafo, origem, condicoes_meteorologicas)
+    pessoas_total = 0
+    procura_restante = float('inf')  # ou valor real da procura para esse destino
+
+    for transporte in ["avião", "comboio", "autocarro"]:  # ordem de prioridade
+        # Filtrar movimentos para destino e transporte
+        movimentos_filtrados = [
+            mov for mov in movimentos
+            if mov["cidade"] == destino and mov["transporte"] == transporte
+        ]
+
+        if not movimentos_filtrados:
+            continue
+
+        mov = movimentos_filtrados[0]
+        tempo_viagem = calcular_tempo_viagem(
+            mov["distancia"], transporte, origem, destino, condicoes_meteorologicas)
+
+        # Quantas viagens dá para fazer no tempo limite?
+        viagens_possiveis = int(tempo_limite // tempo_viagem)
+
+        # Quantos veículos deste tipo temos disponíveis?
+        frota = disponibilidade_veiculos.get(transporte, 0)
+
+        # Pessoas transportadas por este transporte
+        capacidade = veiculos_disponiveis[transporte].capacidade
+
+        pessoas_transportadas = viagens_possiveis * frota * capacidade
+
+        # Se já não há procura restante, para
+        if pessoas_transportadas >= procura_restante:
+            pessoas_transportadas = procura_restante
+            pessoas_total += pessoas_transportadas
+            break
+
+        pessoas_total += pessoas_transportadas
+        procura_restante -= pessoas_transportadas
+
+    return pessoas_total
+
+condicoes_meteorologicas = simular_condicoes_meteorologicas(grafo, probabilidade_afetacao=0.2)
+
+
+def mostrar_condicoes(condicoes_meteorologicas):
+    if not condicoes_meteorologicas:
+        print("Nenhuma condição meteorológica adversa afeta as rotas.")
         return
-    
-    # Mostrar o caminho encontrado
-    print(f"\nCaminho encontrado de {cidade_inicial} para {cidade_final}:")
-    cidade_atual = cidade_inicial
-    for i, (destino, meio) in enumerate(caminho_acoes, 1):
-        for u, v, d in G.out_edges(cidade_atual, data=True):
-            if v == destino and d['meio'] == meio:
-                print(f"{i}. {cidade_atual} -> {destino} ({meio}, Tempo: {d['tempo_ajustado']:.2f}h, Capacidade: {d['capacidade']}, Condição: {d.get('condicao', 'Normal')})")
-                break
-        cidade_atual = destino
-    
-    # Escolher qual trecho executar (simplificação: executa o primeiro trecho por padrão)
-    print("\nPor simplicidade, vamos executar o primeiro trecho do caminho.")
-    acao_escolhida = caminho_acoes[0]  # Primeiro trecho
-    
-    # Calcular o estado após executar a ação
-    estado = problema.initial_state()
-    novo_estado = problema.result(estado, acao_escolhida)
-    custo = problema.path_cost(0, estado, acao_escolhida, novo_estado)
-    
-    # Exibir resultado do trecho
-    print(f"\n=== Resultado da Operação (Primeiro Trecho) ===")
-    print(f"Rota: {estado['cidade']} -> {novo_estado['cidade']}")
-    print(f"Meio: {acao_escolhida[1]}")
-    print(f"Tempo Ajustado: {novo_estado['veiculos_usados'][0][3]:.2f} horas")
-    print(f"Condição: {novo_estado['veiculos_usados'][0][5]}")
-    print(f"Pessoas Transportadas: {novo_estado['pessoas_transportadas']}")
-    print(f"Demanda Restante: {novo_estado['demanda_restante']}")
-    print(f"Combustível Consumido: {novo_estado['veiculos_usados'][0][4]} L")
-    print(f"Custo Total: {custo:.2f} unidades")
-    print(f"Hora de Chegada: {novo_estado['hora']:.2f}h")
-    print(f"Janela de Tempo: {G.nodes[cidade_final]['janela_tempo']}")
-    print(f"Objetivo Alcançado? {'Sim' if problema.goal_test(novo_estado) else 'Não'}")
 
-# Executar menu interativo
-menu_interativo(G)
+    print("Condições meteorológicas adversas nas rotas:")
+    for (origem, destino), info in condicoes_meteorologicas.items():
+        clima = info["clima"]
+        transportes = ", ".join(info["afeta"])
+        print(f"  {origem} -> {destino}: {clima} (afeta: {transportes})")
 
-# Visualizar grafo (opcional)
-pos = nx.spring_layout(G)
-nx.draw(G, pos, with_labels=True, node_color="lightblue", node_size=500, font_size=10, edge_color="gray")
-plt.title("Grafo das Cidades-Sede do Mundial 2030 com Faixas Cortadas e Acidentes")
-plt.savefig('grafo_mundial_2030.png')
+condicoes_meteorologicas = simular_condicoes_meteorologicas(grafo, 0.2)
+mostrar_condicoes(condicoes_meteorologicas)
+
+def tempo_para_custo(tempo_horas):
+    return tempo_horas * 10
+
+
+def ucs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas, veiculos_disponiveis):
+    fronteira = []
+    # Agora armazenamos (custo, tempo_total, estado, caminho)
+    heapq.heappush(fronteira, (0, 0, estado_inicial, []))
+
+    visitados = set()
+
+    while fronteira:
+        custo_atual, tempo_atual, estado_atual, caminho = heapq.heappop(fronteira)
+
+        if estado_atual in visitados:
+            continue
+
+        visitados.add(estado_atual)
+
+        cidade_atual, transporte_atual = estado_atual
+        caminho = caminho + [estado_atual]
+
+        if cidade_atual == estado_objetivo[0]:
+            return caminho, custo_atual, tempo_atual  # devolve caminho, custo e tempo
+
+        movimentos = gerar_operadores_multimodais(grafo, estado_atual, condicoes_meteorologicas)
+
+        for mov in movimentos:
+            novo_estado = mov["estado"]
+            distancia = mov["distancia"]
+            transporte = mov["transporte"]
+            custo_troca = mov.get("custo_troca", 0)
+
+            tempo_viagem = calcular_tempo_viagem(distancia, transporte, cidade_atual, novo_estado[0], condicoes_meteorologicas)
+
+            novo_tempo = tempo_atual + tempo_viagem + custo_troca
+            novo_custo = tempo_para_custo(novo_tempo)  # custo calculado a partir do tempo total
+
+            if novo_estado not in visitados:
+                heapq.heappush(fronteira, (novo_custo, novo_tempo, novo_estado, caminho))
+
+    return None, float('inf'), float('inf')
+
+
+def imprimir_caminho_detalhado_com_avisos(caminho, condicoes_meteorologicas):
+    print("\nCaminho detalhado:")
+    tempo_total = 0
+    custo_total = 0
+    custo_por_hora_troca = 10.0  # podes ajustar este valor
+
+    for i in range(len(caminho) - 1):
+        origem, transporte_origem = caminho[i]
+        destino, transporte_destino = caminho[i + 1]
+
+        dados_ligacao = grafo.grafo[origem][destino]
+        distancia = dados_ligacao["distancia"]
+        transporte = transporte_destino
+
+        tempo_base = distancia / veiculos_disponiveis[transporte].velocidade
+        tempo_viagem = calcular_tempo_viagem(distancia, transporte, origem, destino, condicoes_meteorologicas)
+
+        if transporte != transporte_origem:
+            tempo_troca = random.uniform(0.17, 1.0)  # entre 10 min e 1 hora
+            custo_troca = tempo_troca * custo_por_hora_troca
+        else:
+            tempo_troca = 0
+            custo_troca = 0
+
+        tempo_etapa = tempo_viagem + tempo_troca
+        custo_etapa = tempo_para_custo(tempo_viagem) + custo_troca
+
+        tempo_total += tempo_etapa
+        custo_total += custo_etapa
+
+        aviso = ""
+        if tempo_viagem > tempo_base:
+            aviso += f" (penalização meteorológica aplicada: +{tempo_viagem - tempo_base:.2f}h)"
+        if tempo_troca > 0:
+            aviso += f" (tempo troca transporte: +{tempo_troca:.2f}h, custo troca: +{custo_troca:.2f})"
+
+        print(f"{origem} -> {destino}, transporte: {transporte}, "
+              f"tempo base: {tempo_base:.2f}h, tempo etapa: {tempo_etapa:.2f}h, custo etapa: {custo_etapa:.2f}{aviso}")
+
+    print(f"\nTempo total da viagem: {tempo_total:.2f} horas")
+    print(f"Custo total da viagem: {custo_total:.2f}")
+
+
+# Exemplo de chamada
+estado_inicial = ("Porto", "nenhum")
+estado_objetivo = ("Marraquexe", None)
+
+
+
+caminho, custo, tempo = ucs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas, veiculos_disponiveis)
+imprimir_caminho_detalhado_com_avisos(caminho, condicoes_meteorologicas)
+print(f"Custo final: {custo:.2f}")
+print(f"Tempo final: {tempo:.2f} horas")
+
+velocidades = {
+    "avião": 800,
+    "comboio": 120,
+    "autocarro": 80,
+}
+
+def heuristica_realista(grafo, cidade_atual, cidade_objetivo):
+    if cidade_atual == cidade_objetivo:
+        return 0
+
+    # Obtém as ligações diretas (ou estimadas) entre cidades
+    if (cidade_atual, cidade_objetivo) in distancias_aereas:
+        distancia = distancias_aereas[(cidade_atual, cidade_objetivo)]
+    elif (cidade_objetivo, cidade_atual) in distancias_aereas:
+        distancia = distancias_aereas[(cidade_objetivo, cidade_atual)]
+    else:
+        return 0
+
+    ligacoes = grafo.obter_ligacoes(cidade_atual)
+    if cidade_objetivo not in ligacoes:
+        return 0
+
+    transportes_possiveis = ligacoes[cidade_objetivo]["transportes"]
+    tempos = []
+    for transporte in transportes_possiveis:
+        velocidade = velocidades.get(transporte, 80)
+        tempos.append(distancia / velocidade)
+
+    if tempos:
+        return min(tempos)
+    else:
+        return distancia / 800
+
+def astar_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas, veiculos_disponiveis):
+    fronteira = []
+    heapq.heappush(fronteira, (0, 0, estado_inicial, []))  # (f=g+h, g, estado, caminho)
+    visitados = {}
+
+    while fronteira:
+        f, g, estado_atual, caminho = heapq.heappop(fronteira)
+        if estado_atual in visitados and visitados[estado_atual] <= g:
+            continue
+        visitados[estado_atual] = g
+
+        cidade_atual, transporte_atual = estado_atual
+        caminho = caminho + [estado_atual]
+
+        if cidade_atual == estado_objetivo[0]:
+            return caminho, g
+
+        movimentos = gerar_operadores_multimodais(grafo, estado_atual, condicoes_meteorologicas)
+
+        for mov in movimentos:
+            novo_estado = mov["estado"]
+            distancia = mov["distancia"]
+            transporte = mov["transporte"]
+            custo_troca = mov.get("custo_troca", 0)
+
+            tempo_viagem = calcular_tempo_viagem(distancia, transporte, cidade_atual, novo_estado[0], condicoes_meteorologicas)
+            g_novo = g + tempo_viagem + custo_troca
+            h = heuristica_realista(grafo, novo_estado[0], estado_objetivo[0])
+            f_novo = g_novo + h
+
+            if novo_estado not in visitados or visitados[novo_estado] > g_novo:
+                heapq.heappush(fronteira, (f_novo, g_novo, novo_estado, caminho))
+
+    return None, float('inf')
+
+
+def imprimir_resultados_heuristica(caminho, condicoes_meteorologicas):
+    tempo_total = 0
+    custo_total = 0
+    custo_por_hora_troca = 10.0  # custo por hora da troca, ajustável
+
+    for i in range(len(caminho) - 1):
+        origem, transporte_origem = caminho[i]
+        destino, transporte_destino = caminho[i + 1]
+
+        dados_ligacao = grafo.grafo[origem][destino]
+        distancia = dados_ligacao["distancia"]
+        transporte = transporte_destino
+
+        tempo_base = distancia / veiculos_disponiveis[transporte].velocidade
+        tempo_viagem = calcular_tempo_viagem(distancia, transporte, origem, destino, condicoes_meteorologicas)
+
+        if transporte != transporte_origem:
+            # Tempo aleatório para troca entre 10 minutos (0.17h) e 1 hora (1h)
+            tempo_troca = random.uniform(0.17, 1.0)
+            custo_troca = tempo_troca * custo_por_hora_troca
+        else:
+            tempo_troca = 0
+            custo_troca = 0
+
+        tempo_etapa = tempo_viagem + tempo_troca
+        custo_etapa = tempo_para_custo(tempo_viagem) + custo_troca
+
+        tempo_total += tempo_etapa
+        custo_total += custo_etapa
+
+        aviso = ""
+        if tempo_viagem > tempo_base:
+            aviso += f" (penalização meteorológica aplicada: +{tempo_viagem - tempo_base:.2f}h)"
+        if tempo_troca > 0:
+            aviso += f" (tempo troca transporte: +{tempo_troca:.2f}h, custo troca: +{custo_troca:.2f})"
+
+        print(f"{origem} -> {destino}, transporte: {transporte}, tempo base: {tempo_base:.2f}h, "
+              f"tempo etapa: {tempo_etapa:.2f}h, custo etapa: {custo_etapa:.2f}{aviso}")
+
+    print(f"\nTempo total da viagem: {tempo_total:.2f} horas")
+    print(f"Custo total da viagem: {custo_total:.2f}")
+
+estado_inicial = ("Bilbao", "nenhum")
+estado_objetivo = ("Marraquexe", None)
+
+caminho, custo = astar_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas, veiculos_disponiveis)
+
+if caminho:
+    print("\nResultados para o algoritmo A* (Bilbao -> Marraquexe):")
+    imprimir_resultados_heuristica(caminho, condicoes_meteorologicas)
+else:
+    print("Caminho não encontrado pelo A*")
+
+
+def bfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas):
+    fila = deque()
+    fila.append((estado_inicial, []))  # (estado, caminho)
+    visitados = set()
+    
+    while fila:
+        estado_atual, caminho = fila.popleft()
+        cidade_atual, transporte_atual = estado_atual
+        
+        if estado_atual in visitados:
+            continue
+        visitados.add(estado_atual)
+        
+        caminho = caminho + [estado_atual]
+        
+        if cidade_atual == estado_objetivo[0]:
+            return caminho
+        
+        movimentos = gerar_operadores_multimodais(grafo, estado_atual, condicoes_meteorologicas)
+        
+        for mov in movimentos:
+            novo_estado = mov["estado"]
+            if novo_estado not in visitados:
+                fila.append((novo_estado, caminho))
+    
+    return None  # se não encontrar caminho
+caminho_bfs = bfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas)
+
+def imprimir_resultados_bfs(caminho, condicoes_meteorologicas):
+    tempo_total = 0
+    custo_total = 0
+
+    print("\nCaminho detalhado (BFS):")
+
+    for i in range(len(caminho) - 1):
+        origem, transporte_origem = caminho[i]
+        destino, transporte_destino = caminho[i + 1]
+
+        dados_ligacao = grafo.grafo[origem][destino]
+        distancia = dados_ligacao["distancia"]
+        transporte = transporte_destino
+
+        tempo_base = distancia / veiculos_disponiveis[transporte].velocidade
+        tempo_viagem = calcular_tempo_viagem(distancia, transporte, origem, destino, condicoes_meteorologicas)
+
+        custo_troca = 0 if transporte == transporte_origem else 5.0
+
+        # Tempo da etapa excluindo custo troca
+        tempo_etapa = tempo_viagem
+
+        # Custo da etapa: custo do tempo + custo fixo da troca
+        custo_etapa = tempo_para_custo(tempo_etapa) + custo_troca
+
+        # Somar o tempo da viagem e a penalização da troca (tempo extra aleatório, se quiseres depois podes incluir)
+        tempo_total += tempo_etapa + custo_troca  
+        custo_total += custo_etapa
+
+        aviso = ""
+        if tempo_viagem > tempo_base:
+            aviso += f" (penalização meteorológica aplicada: +{tempo_viagem - tempo_base:.2f}h)"
+        if custo_troca > 0:
+            aviso += f" (custo troca transporte: +{custo_troca:.2f})"
+
+        print(f"{origem} -> {destino}, transporte: {transporte}, tempo base: {tempo_base:.2f}h, "
+              f"tempo etapa: {tempo_etapa:.2f}h, custo etapa: {custo_etapa:.2f}{aviso}")
+
+    print(f"\nTempo total da viagem: {tempo_total:.2f} horas")
+    print(f"Custo total da viagem: {custo_total:.2f}")
+
+# Uso após a execução do BFS
+if caminho_bfs:
+    imprimir_resultados_bfs(caminho_bfs, condicoes_meteorologicas)
+else:
+    print("Caminho não encontrado pelo BFS")
+
+if caminho_bfs:
+    imprimir_resultados_bfs(caminho_bfs, condicoes_meteorologicas)
+else:
+    print("Caminho não encontrado pelo BFS")
