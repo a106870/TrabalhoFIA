@@ -4,6 +4,11 @@ import matplotlib.pyplot as plt
 import heapq
 from collections import deque
 
+def formatar_tempo_em_horas_minutos(tempo_decimal):
+    horas = int(tempo_decimal)
+    minutos = int(round((tempo_decimal - horas) * 60))
+    return f"{horas}h{minutos:02d}m"
+
 
 class Grafo:
     def __init__(self):
@@ -347,7 +352,8 @@ def ucs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologi
             if novo_estado not in visitados:
                 heapq.heappush(fronteira, (novo_custo, novo_tempo, novo_estado, caminho))
 
-    return None, float('inf'), float('inf')
+    return caminho, custo_atual, tempo_atual
+
 
 
 def imprimir_caminho_detalhado_com_avisos(caminho, condicoes_meteorologicas):
@@ -390,20 +396,9 @@ def imprimir_caminho_detalhado_com_avisos(caminho, condicoes_meteorologicas):
         print(f"{origem} -> {destino}, transporte: {transporte}, "
               f"tempo base: {tempo_base:.2f}h, tempo etapa: {tempo_etapa:.2f}h, custo etapa: {custo_etapa:.2f}{aviso}")
 
-    print(f"\nTempo total da viagem: {tempo_total:.2f} horas")
     print(f"Custo total da viagem: {custo_total:.2f}")
+    print(f"Tempo total da viagem: {formatar_tempo_em_horas_minutos(tempo_total)}")
 
-
-# Exemplo de chamada
-estado_inicial = ("Porto", "nenhum")
-estado_objetivo = ("Marraquexe", None)
-
-
-
-caminho, custo, tempo = ucs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas, veiculos_disponiveis)
-imprimir_caminho_detalhado_com_avisos(caminho, condicoes_meteorologicas)
-print(f"Custo final: {custo:.2f}")
-print(f"Tempo final: {tempo:.2f} horas")
 
 velocidades = {
     "avião": 800,
@@ -473,7 +468,8 @@ def astar_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorolo
             if novo_estado not in visitados or visitados[novo_estado] > g_novo:
                 heapq.heappush(fronteira, (f_novo, g_novo, novo_estado, caminho))
 
-    return None, float('inf')
+    return None, float('inf') 
+
 
 
 def imprimir_resultados_heuristica(caminho, condicoes_meteorologicas):
@@ -515,20 +511,9 @@ def imprimir_resultados_heuristica(caminho, condicoes_meteorologicas):
         print(f"{origem} -> {destino}, transporte: {transporte}, tempo base: {tempo_base:.2f}h, "
               f"tempo etapa: {tempo_etapa:.2f}h, custo etapa: {custo_etapa:.2f}{aviso}")
 
-    print(f"\nTempo total da viagem: {tempo_total:.2f} horas")
+    print(f"Tempo total da viagem: {formatar_tempo_em_horas_minutos(tempo_total)}")
     print(f"Custo total da viagem: {custo_total:.2f}")
 
-estado_inicial = ("Bilbao", "nenhum")
-estado_objetivo = ("Marraquexe", None)
-
-caminho, custo = astar_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas, veiculos_disponiveis)
-
-if caminho:
-    print("\n" + "-"*50)
-    print("\nResultados para o algoritmo A* :")
-    imprimir_resultados_heuristica(caminho, condicoes_meteorologicas)
-else:
-    print("Caminho não encontrado pelo A*")
 
 #BFS
 def bfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas):
@@ -597,14 +582,9 @@ def imprimir_resultados_bfs(caminho, condicoes_meteorologicas):
         print(f"{origem} -> {destino}, transporte: {transporte}, tempo base: {tempo_base:.2f}h, "
               f"tempo etapa: {tempo_etapa:.2f}h, custo etapa: {custo_etapa:.2f}{aviso}")
 
-    print(f"\nTempo total da viagem: {tempo_total:.2f} horas")
+    print(f"Tempo total da viagem: {formatar_tempo_em_horas_minutos(tempo_total)}")
     print(f"Custo total da viagem: {custo_total:.2f}")
-caminho_bfs = bfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas)
-# Uso após a execução do BFS
-if caminho_bfs:
-    imprimir_resultados_bfs(caminho_bfs, condicoes_meteorologicas)
-else:
-    print("Caminho não encontrado pelo BFS")
+
 
 #GREEDY
 def greedy_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas, veiculos_disponiveis):
@@ -675,24 +655,10 @@ def imprimir_resultados_greedy(caminho, condicoes_meteorologicas):
         print(f"{origem} -> {destino}, transporte: {transporte}, tempo base: {tempo_base:.2f}h, "
               f"tempo etapa: {tempo_viagem:.2f}h, custo etapa: {custo_etapa:.2f}{aviso}")
 
-    print(f"\nTempo total da viagem: {tempo_total:.2f} horas")
+    print(f"Tempo total da viagem: {formatar_tempo_em_horas_minutos(tempo_total)}")
     print(f"Custo total da viagem: {custo_total:.2f}")
 
-estado_inicial = ("Lisboa", "nenhum")
-estado_objetivo = ("Marraquexe", None)
 
-caminho_greedy = greedy_multimodal(
-    grafo,
-    estado_inicial,
-    estado_objetivo,
-    condicoes_meteorologicas,
-    veiculos_disponiveis
-)
-
-if caminho_greedy:
-    imprimir_resultados_greedy(caminho_greedy, condicoes_meteorologicas)
-else:
-    print("Caminho não encontrado pelo Greedy")
 
 #DFS
 def dfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas):
@@ -758,15 +724,108 @@ def imprimir_resultados_dfs(caminho, condicoes_meteorologicas):
         print(f"{origem} -> {destino}, transporte: {transporte}, tempo base: {tempo_base:.2f}h, "
               f"tempo etapa: {tempo_etapa:.2f}h, custo etapa: {custo_etapa:.2f}{aviso}")
 
-    print(f"\nTempo total da viagem: {tempo_total:.2f} horas")
+    print(f"Tempo total da viagem: {formatar_tempo_em_horas_minutos(tempo_total)}")
     print(f"Custo total da viagem: {custo_total:.2f}")
 
-estado_inicial = ("Bilbao", "nenhum")
-estado_objetivo = ("Marraquexe", None)
 
-caminho_dfs = dfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas)
 
-if caminho_dfs:
-    imprimir_resultados_dfs(caminho_dfs, condicoes_meteorologicas)
-else:
-    print("Caminho não encontrado pelo DFS")
+def menu_rotas():
+    print("\nEscolhe o algoritmo para calcular a rota:")
+    print("1 - UCS (Uniform Cost Search)")
+    print("2 - A*")
+    print("3 - BFS")
+    print("4 - DFS")
+    print("5 - Greedy Best-First Search")
+    print("6 - Voltar ao menu principal")
+
+    escolha = input("Opção: ").strip()
+    return escolha
+
+def menu_principal():
+    while True:
+        print("\nMenu Principal")
+        print("1 - Imprimir Grafo")
+        print("2 - Mostrar o grafo")
+        print("3 - Informações sobre as cidades")
+        print("4 - Rotas")
+        print("5 - Sair")
+
+        opcao = input("Escolhe uma opção: ").strip()
+
+        if opcao == "1":
+            grafo.mostrar_grafo()
+
+        elif opcao == "2":
+            desenhar_grafo(grafo)
+
+        elif opcao == "3":
+            print("\nInformações sobre as cidades:")
+            for cidade in cidades:
+                procura = procura_por_zona.get(cidade, "Desconhecida")
+                print(f"{cidade}: Procura = {procura}")
+
+        elif opcao == "4":
+            while True:
+                escolha_alg = menu_rotas()
+
+                if escolha_alg == "6":
+                    break
+
+                origem = input("Cidade inicial: ").strip().capitalize()
+                destino = input("Cidade final: ").strip().capitalize()
+
+                if origem not in cidades or destino not in cidades:
+                    print("Cidade inválida. Tenta novamente.")
+                    continue
+
+                estado_inicial = (origem, "nenhum")
+                estado_objetivo = (destino, None)
+
+                if escolha_alg == "1":
+                    caminho, custo, tempo = ucs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas, veiculos_disponiveis)
+
+                    if caminho:
+                        imprimir_caminho_detalhado_com_avisos(caminho, condicoes_meteorologicas)
+                    else:
+                        print("Caminho não encontrado pelo UCS.")
+
+                elif escolha_alg == "2":
+                    caminho, custo = astar_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas, veiculos_disponiveis)
+                    if caminho:
+                        imprimir_resultados_heuristica(caminho, condicoes_meteorologicas)
+                        print(f"Custo final (tempo): {custo:.2f}")
+                    else:
+                        print("Caminho não encontrado pelo A*.")
+
+                elif escolha_alg == "3":
+                    caminho = bfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas)
+                    if caminho:
+                        imprimir_resultados_bfs(caminho, condicoes_meteorologicas)
+                    else:
+                        print("Caminho não encontrado pelo BFS.")
+
+                elif escolha_alg == "4":
+                    caminho = dfs_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas)
+                    if caminho:
+                        imprimir_resultados_bfs(caminho, condicoes_meteorologicas)  # Podes criar imprimir_resultados_dfs para diferenciar, se quiseres
+                    else:
+                        print("Caminho não encontrado pelo DFS.")
+
+                elif escolha_alg == "5":
+                    caminho = greedy_multimodal(grafo, estado_inicial, estado_objetivo, condicoes_meteorologicas, veiculos_disponiveis)
+                    if caminho:
+                        imprimir_resultados_heuristica(caminho, condicoes_meteorologicas)
+                    else:
+                        print("Caminho não encontrado pelo Greedy.")
+
+                else:
+                    print("Opção inválida. Tenta novamente.")
+
+        elif opcao == "5":
+            print("A sair do programa. Até breve!")
+            break
+
+        else:
+            print("Opção inválida. Tenta novamente.")
+
+menu_principal()
